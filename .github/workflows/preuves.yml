@@ -1,0 +1,133 @@
+# Isnadur Center : preuves jouées dans le dépôt PUBLIC de preuves (minutes gratuites), sur une copie CHIFFRÉE du code du dépôt privé.
+# Le code n'est déchiffré que dans le travail, avec le secret CLE_PREUVES (posé par le fondateur, jamais visible du public). Les journaux
+# publics ne montrent que des totaux ; le rapport détaillé n'est pas publié. Aucun déclenchement par une demande de fusion ni par un
+# dépôt dérivé : seuls les envois du propriétaire sur main, qui seuls reçoivent les secrets.
+# Ce fichier est la source ; pousser_preuves.sh le recopie dans le dépôt public (.github/workflows/preuves.yml).
+name: preuves
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: preuves
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      matrice: ${{ steps.m.outputs.matrice }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - id: m
+        run: |
+          jq -e 'type == "array" and length > 0' travaux.json > /dev/null || { echo "# liste de travaux vide ou invalide"; exit 1; }
+          echo "matrice=$(jq -c . travaux.json)" >> "$GITHUB_OUTPUT"   # liste des travaux, en clair (noms d'étapes seulement)
+  travail:
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.plan.outputs.matrice) }}
+    name: ${{ matrix.nom }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Déchiffrer et jouer (sortie publique réduite aux totaux)
+        env:
+          CLE: ${{ secrets.CLE_PREUVES }}
+          COMMANDE: ${{ matrix.commande }}
+          ETAPES: ${{ matrix.etapes }}
+          PART: ${{ matrix.part }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          [ -n "$CLE" ] || { echo "# secret CLE_PREUVES absent"; exit 2; }
+          [[ "$COMMANDE" =~ ^(campagne|outils_test/preuves_[a-z0-9_]+\.sh)$ ]] || { echo "# commande refusee"; exit 2; }
+          W="$RUNNER_TEMP/w"; mkdir -p "$W"; R=2
+          # Tout ce qui peut imprimer du code (erreurs de tar, de python, de bash, de PostgreSQL) va dans le rapport chiffré, jamais au journal.
+          (
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 200000 -pass env:CLE -in code.tar.gz.enc | tar -xz -C "$W" || { echo "# dechiffrement impossible"; exit 2; }
+            unset CLE
+            cd "$W/schema"
+            if [ "$COMMANDE" = campagne ]; then
+              # Même garde que center-base : le test 18 commité est exactement la sortie de son générateur.
+              cp tests/18_performance.sql "$RUNNER_TEMP/t18_commite"
+              (cd ../outils && python3 generer_test_performance.py) || { echo "# generateur du test 18 en echec"; exit 2; }
+              cmp -s tests/18_performance.sql "$RUNNER_TEMP/t18_commite" || { echo "# test 18 commite different de son generateur"; exit 2; }
+              bash tests/lancer_campagne.sh
+            else bash "$COMMANDE"; fi
+          ) > "$RUNNER_TEMP/r.txt" 2>&1; R=$?
+          unset CLE
+          # Public : seulement les lignes de total et de verdict, et le nombre d'échecs (jamais leur texte).
+          grep -E "^# (total|campagne|preuves|etape|test 90|versions|tests de|nombre|duree|dechiffrement|generateur|test 18)" "$RUNNER_TEMP/r.txt" | cut -c1-160
+          echo "# lignes en echec : $(grep -cE '^ *not ok' "$RUNNER_TEMP/r.txt")"
+          echo "# code de sortie : $R ; empreinte du code : $(sha256sum "$GITHUB_WORKSPACE/code.tar.gz.enc" | cut -c1-16) ; commit prive : $(cat "$GITHUB_WORKSPACE/commit_prive.txt")"
+          rm -rf "$W"
+          exit $R
+      - name: Résumé public (totaux seulement)
+        if: always()
+        shell: bash
+        run: |
+          [ -f "$RUNNER_TEMP/r.txt" ] && grep -E "^# (total|campagne|preuves|etape|test 90|versions|tests de|nombre)" "$RUNNER_TEMP/r.txt" | cut -c1-160 > "$RUNNER_TEMP/resume.txt" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: resume-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/resume.txt
+          retention-days: 14
+          if-no-files-found: ignore
+      - name: Rapport détaillé chiffré
+        if: always()
+        env:
+          CLE: ${{ secrets.CLE_PREUVES }}
+        shell: bash
+        run: |
+          [ -f "$RUNNER_TEMP/r.txt" ] && openssl enc -aes-256-cbc -pbkdf2 -iter 200000 -pass env:CLE -in "$RUNNER_TEMP/r.txt" -out "$RUNNER_TEMP/rapport.enc" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: rapport-${{ strategy.job-index }}
+          path: ${{ runner.temp }}/rapport.enc
+          retention-days: 14
+          if-no-files-found: ignore
+  bilan:
+    needs: travail
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: resume-*
+          path: resumes
+      # Tous les travaux réussis, et la couverture complète : chaque règle de bilan.json (motif, total attendu) doit être atteinte par la
+      # somme des lignes « x sur y » de tous les travaux (une matrice amputée ou mal découpée échoue ici).
+      - name: Bilan
+        shell: bash
+        run: |
+          [ "${{ needs.travail.result }}" = success ] || { echo "# preuves : ECHOUEES (un travail au moins)"; exit 1; }
+          cat resumes/*/resume.txt > tout.txt 2>/dev/null || { echo "# aucun resume"; exit 1; }
+          jq -e 'type == "array" and length > 0' bilan.json > /dev/null || { echo "# bilan vide ou invalide"; exit 1; }
+          while read -r regle; do
+            e=$(jq -r '.exige // empty' <<<"$regle")
+            if [ -n "$e" ]; then   # ligne exigée exactement une fois (ex. total de campagne)
+              n=$(grep -cE "$e" tout.txt || true); echo "# exige [$e] : $n fois"; [ "$n" = 1 ] || { echo "# ligne exigee absente : $e"; exit 1; }; continue
+            fi
+            m=$(jq -r .motif <<<"$regle"); a=$(jq -r .attendu <<<"$regle")
+            read r t < <(grep -E "^# $m" tout.txt | sed -E 's/.* : ([0-9]+) sur ([0-9]+)$/\1 \2/' | awk '{r+=$1; t+=$2} END {print r+0, t+0}')
+            echo "# $m : $r sur $t (attendu $a)"
+            [ "$r" = "$a" ] && [ "$t" = "$a" ] || { echo "# couverture incomplete : $m"; exit 1; }
+          done < <(jq -c '.[]' bilan.json)
+          echo "# preuves : REUSSIES (tous les travaux, couverture complete)"
