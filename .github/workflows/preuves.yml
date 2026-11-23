@@ -50,7 +50,7 @@ jobs:
           PART: ${{ matrix.part }}
         shell: bash
         run: |
-          set -uo pipefail
+          set +e -uo pipefail   # le shell de GitHub est en -e : sans set +e, un échec du sous-shell arrêterait tout avant le résumé
           [ -n "$CLE" ] || { echo "# secret CLE_PREUVES absent"; exit 2; }
           [[ "$COMMANDE" =~ ^(campagne|outils_test/preuves_[a-z0-9_]+\.sh)$ ]] || { echo "# commande refusee"; exit 2; }
           W="$RUNNER_TEMP/w"; mkdir -p "$W"; R=2
