@@ -118,7 +118,7 @@ jobs:
         shell: bash
         run: |
           [ "${{ needs.travail.result }}" = success ] || { echo "# preuves : ECHOUEES (un travail au moins)"; exit 1; }
-          cat resumes/*/resume.txt > tout.txt 2>/dev/null || { echo "# aucun resume"; exit 1; }
+          find resumes -name resume.txt -exec cat {} + > tout.txt 2>/dev/null; [ -s tout.txt ] || { echo "# aucun resume"; exit 1; }   # un seul artefact peut être posé sans sous-dossier
           jq -e 'type == "array" and length > 0' bilan.json > /dev/null || { echo "# bilan vide ou invalide"; exit 1; }
           while read -r regle; do
             e=$(jq -r '.exige // empty' <<<"$regle")
