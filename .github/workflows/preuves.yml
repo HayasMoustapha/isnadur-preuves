@@ -69,7 +69,7 @@ jobs:
           ) > "$RUNNER_TEMP/r.txt" 2>&1; R=$?
           unset CLE
           # Public : seulement les lignes de total et de verdict, et le nombre d'échecs (jamais leur texte).
-          grep -E "^# (total|campagne|preuves|etape|test 90|versions|tests de|nombre|duree|dechiffrement|generateur|test 18)" "$RUNNER_TEMP/r.txt" | cut -c1-160
+          grep -E "^# (total|campagne|preuves|duree|dechiffrement|generateur|test 18)|^# [a-z0-9 ,().éèàêç/-]+ : [0-9]+ sur [0-9]+$" "$RUNNER_TEMP/r.txt" | cut -c1-160
           echo "# lignes en echec : $(grep -cE '^ *not ok' "$RUNNER_TEMP/r.txt")"
           echo "# code de sortie : $R ; empreinte du code : $(sha256sum "$GITHUB_WORKSPACE/code.tar.gz.enc" | cut -c1-16) ; commit prive : $(cat "$GITHUB_WORKSPACE/commit_prive.txt")"
           rm -rf "$W"
@@ -78,7 +78,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          [ -f "$RUNNER_TEMP/r.txt" ] && grep -E "^# (total|campagne|preuves|etape|test 90|versions|tests de|nombre)" "$RUNNER_TEMP/r.txt" | cut -c1-160 > "$RUNNER_TEMP/resume.txt" || true
+          [ -f "$RUNNER_TEMP/r.txt" ] && grep -E "^# (total|campagne|preuves)|^# [a-z0-9 ,().éèàêç/-]+ : [0-9]+ sur [0-9]+$" "$RUNNER_TEMP/r.txt" | cut -c1-160 > "$RUNNER_TEMP/resume.txt" || true
       - uses: actions/upload-artifact@v7
         if: always()
         with:
