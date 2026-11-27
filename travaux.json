@@ -1,1 +1,1 @@
-[{"nom":"diagnostic r06","commande":"outils_test/preuves_r06_plan.sh","etapes":"","part":""}]
+[{"nom":"e1a recensement","commande":"outils_test/preuves_e1a_liste.sh","etapes":"","part":""},{"nom":"e1a preuves (diagnostic)","commande":"outils_test/preuves_e1a.sh","etapes":"","part":""}]
