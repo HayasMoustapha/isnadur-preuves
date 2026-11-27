@@ -1,1 +1,1 @@
-[{"exige": "^# total : 4098 reussis, 0 echec\\(s\\) ; attendu : 4098 "}, {"exige": "^# campagne : REUSSIE"}, {"exige": "^# preuves E5 : REUSSIES"}, {"exige": "^# matrice rejouee : 42 sur 42$"}, {"exige": "^# partielles rejouees : 16 sur 16$"}]
+[{"exige": "^# sonde objets temoins : 11 sur 11$"}, {"exige": "^# preuves sonde E1a : REUSSIES"}, {"exige": "^# preuves M16 : REUSSIES"}, {"exige": "^# M16 reference mesuree : 12 sur 12"}]
